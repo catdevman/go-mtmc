@@ -1,0 +1,17 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>MTMC - Go Edition</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>MonTana state Mini Computer (Go Edition)</h1>
+        {{template "content" .}}
+    </div>
+    <script src="/static/js/main.js"></script>
+</body>
+</html>
+{{end}}

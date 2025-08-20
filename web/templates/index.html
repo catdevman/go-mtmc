@@ -1,0 +1,30 @@
+{{define "content"}}
+<div class="main-grid">
+    <div class="panel registers">
+        <h2>Registers</h2>
+        <pre id="registers-view">{{range $i, $val := .registers}}R{{$i}}: {{$val}}
+{{end}}</pre>
+    </div>
+    <div class="panel memory">
+        <h2>Memory (first 256 bytes)</h2>
+        <pre id="memory-view">{{range .memory}}{{.}} {{end}}</pre>
+    </div>
+    <div class="panel controls">
+        <h2>Controls</h2>
+        <a href="/control?action=run" class="btn">Run</a>
+        <a href="/control?action=pause" class="btn">Pause</a>
+        <a href="/control?action=step" class="btn">Step</a>
+        <a href="/control?action=reset" class="btn">Reset</a>
+        <p>PC: <span id="pc-view">{{.pc}}</span></p>
+        <p>Running: <span id="running-view">{{.running}}</span></p>
+    </div>
+    <div class="panel programs">
+        <h2>Programs</h2>
+        <ul>
+            {{range .programs}}
+            <li><a href="/load?program={{.}}">{{.}}</a></li>
+            {{end}}
+        </ul>
+    </div>
+</div>
+{{end}}
