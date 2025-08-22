@@ -6,5 +6,5 @@ import "embed"
 // The `all:` prefix includes all files in the directory,
 // including those that start with a `.` or `_`.
 
-//go:embed *
+//go:embed disk
 var FS embed.FS

@@ -8,17 +8,14 @@ import (
 )
 
 const (
-	MemorySize = 4096
+	WordSize   = 2
+	MemorySize = 1 << 4 // 4096 bytes (4K)
 )
 
 // MonTanaMiniComputer represents the state of the virtual computer.
 type MonTanaMiniComputer struct {
 	Memory    []byte
-	Registers [16]int16
-	PC        uint16 // Program Counter
-	SP        uint16 // Stack Pointer
-	Z         bool   // Zero flag
-	N         bool   // Negative flag
+	Registers [16]uint16
 	Running   bool
 	mutex     sync.Mutex
 	observers []Observer
@@ -31,9 +28,12 @@ type Observer interface {
 
 // New creates a new MTMC instance.
 func New() *MonTanaMiniComputer {
-	return &MonTanaMiniComputer{
+	m := &MonTanaMiniComputer{
 		Memory: make([]byte, MemorySize),
 	}
+	// Initialize SP to the top of memory
+	m.Registers[SP] = MemorySize - 2
+	return m
 }
 
 // AddObserver adds an observer to the computer.
@@ -73,57 +73,68 @@ func (c *MonTanaMiniComputer) Step() {
 
 // step executes a single instruction.
 func (c *MonTanaMiniComputer) step() {
-	if c.PC >= MemorySize-1 {
+	pc := c.Registers[PC]
+	if pc >= MemorySize-1 {
 		log.Println("PC out of bounds, stopping execution.")
 		c.Running = false
 		return
 	}
 
-	instruction := binary.BigEndian.Uint16(c.Memory[c.PC:])
-	c.PC += 2
+	instruction := binary.BigEndian.Uint16(c.Memory[pc:])
+	c.Registers[PC] += 2
 
-	// Decode and execute the instruction
-	opCode := (instruction & 0xF000) >> 12
-	regA := (instruction & 0x0F00) >> 8
-	regB := (instruction & 0x00F0) >> 4
-	regC := instruction & 0x000F
-	imm := int16(instruction & 0x00FF)
+	// Decode and execute the instruction based on the specification
+	opCode := (instruction & 0b1111000000000000) >> 12
+	regD := (instruction & 0b0000111100000000) >> 8
+	regS := (instruction & 0b0000000011110000) >> 4
+	regT := instruction & 0b0000000000001111
+	imm := int16(instruction & 0b0000000011111111)
 
 	switch opCode {
-	case 0x1: // ADD
-		c.Registers[regA] = c.Registers[regB] + c.Registers[regC]
-	case 0x2: // SUB
-		c.Registers[regA] = c.Registers[regB] - c.Registers[regC]
-	case 0x3: // ADDI
-		c.Registers[regA] = c.Registers[regB] + imm
-	case 0x4: // LW
-		addr := uint16(c.Registers[regB] + imm)
-		if addr < MemorySize-1 {
-			c.Registers[regA] = int16(binary.BigEndian.Uint16(c.Memory[addr:]))
+	// ALU Instructions
+	case 0b0001: // ADD
+		c.Registers[regD] = c.Registers[regS] + c.Registers[regT]
+	case 0b0010: // SUB
+		c.Registers[regD] = c.Registers[regS] - c.Registers[regT]
+	case 0b0011: // AND
+		c.Registers[regD] = c.Registers[regS] & c.Registers[regT]
+	case 0b0100: // OR
+		c.Registers[regD] = c.Registers[regS] | c.Registers[regT]
+	case 0b0101: // XOR
+		c.Registers[regD] = c.Registers[regS] ^ c.Registers[regT]
+	case 0b0110: // SLL
+		c.Registers[regD] = c.Registers[regS] << c.Registers[regT]
+	case 0b0111: // SRL
+		c.Registers[regD] = c.Registers[regS] >> c.Registers[regT]
+
+	// Immediate Instructions
+	case 0b1001: // ADDI
+		c.Registers[regD] = c.Registers[regS] + uint16(imm)
+	case 0b1010: // SUBI
+		c.Registers[regD] = c.Registers[regS] - uint16(imm)
+
+	// Load/Store
+	case 0b1100: // LW
+		addr := c.Registers[regS] + uint16(imm)
+		c.Registers[regD] = binary.BigEndian.Uint16(c.Memory[addr:])
+	case 0b1101: // SW
+		addr := c.Registers[regS] + uint16(imm)
+		binary.BigEndian.PutUint16(c.Memory[addr:], c.Registers[regD])
+
+	// Branching
+	case 0b1110: // BZ
+		if c.Registers[regS] == 0 {
+			c.Registers[PC] += uint16(imm) * 2 // Branch is relative
 		}
-	case 0x5: // SW
-		addr := uint16(c.Registers[regB] + imm)
-		if addr < MemorySize-1 {
-			binary.BigEndian.PutUint16(c.Memory[addr:], uint16(c.Registers[regA]))
-		}
-	case 0x8: // JZ
-		if c.Z {
-			c.PC = uint16(imm)
-		}
-	case 0x9: // JMP
-		c.PC = uint16(c.Registers[regA])
-	case 0xF: // HALT
+	case 0b1111: // HALT
 		c.Running = false
+
 	default:
 		log.Printf("Unknown instruction: 0x%04X\n", instruction)
 		c.Running = false
 	}
 
-	// Update flags (simplified)
-	if opCode >= 1 && opCode <= 3 {
-		c.Z = c.Registers[regA] == 0
-		c.N = c.Registers[regA] < 0
-	}
+	// The status register would be updated here based on ALU results
 }
 
 // LoadProgram loads a program into memory at a specific address.
@@ -131,20 +142,26 @@ func (c *MonTanaMiniComputer) LoadProgram(program []byte, address uint16) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	copy(c.Memory[address:], program)
-	c.PC = address
+	c.Registers[PC] = address
 }
 
 // GetState returns a snapshot of the computer's state.
 func (c *MonTanaMiniComputer) GetState() map[string]interface{} {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
+
+	// Create a map for named registers for easier display
+	namedRegisters := map[string]uint16{
+		"R0": c.Registers[R0], "R1": c.Registers[R1], "R2": c.Registers[R2], "R3": c.Registers[R3],
+		"R4": c.Registers[R4], "R5": c.Registers[R5], "R6": c.Registers[R6], "R7": c.Registers[R7],
+		"GP": c.Registers[GP], "FP": c.Registers[FP], "SP": c.Registers[SP], "RA": c.Registers[RA],
+		"HI": c.Registers[HI], "LO": c.Registers[LO], "PC": c.Registers[PC], "SR": c.Registers[SR],
+	}
+
 	return map[string]interface{}{
-		"registers": c.Registers,
-		"pc":        c.PC,
-		"sp":        c.SP,
-		"z":         c.Z,
-		"n":         c.N,
-		"running":   c.Running,
-		"memory":    c.Memory[:256], // Send a portion of memory for display
+		"registers":      c.Registers,
+		"namedRegisters": namedRegisters,
+		"running":        c.Running,
+		"memory":         c.Memory[:256], // Send a portion of memory for display
 	}
 }

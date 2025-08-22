@@ -2,7 +2,7 @@
 <div class="main-grid">
     <div class="panel registers">
         <h2>Registers</h2>
-        <pre id="registers-view">{{range $i, $val := .registers}}R{{$i}}: {{$val}}
+        <pre id="registers-view">{{range $key, $val := .namedRegisters}}{{$key}}: {{$val}}
 {{end}}</pre>
     </div>
     <div class="panel memory">
@@ -15,7 +15,7 @@
         <a href="/control?action=pause" class="btn">Pause</a>
         <a href="/control?action=step" class="btn">Step</a>
         <a href="/control?action=reset" class="btn">Reset</a>
-        <p>PC: <span id="pc-view">{{.pc}}</span></p>
+        <p>PC: <span id="pc-view">{{.namedRegisters.PC}}</span></p>
         <p>Running: <span id="running-view">{{.running}}</span></p>
     </div>
     <div class="panel programs">
@@ -28,3 +28,4 @@
     </div>
 </div>
 {{end}}
+
